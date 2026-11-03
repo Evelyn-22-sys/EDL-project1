@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#002147">
+  <title>Folio · AI 영어 지문 분석</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%23002147'/%3E%3Cpath d='M9 8.5h10.5a1.5 1.5 0 0 1 1.5 1.5V24H11a2 2 0 0 0-2 2V8.5z' fill='none' stroke='%23c4a46a' stroke-width='1.6'/%3E%3Cpath d='M12 13h7M12 17h7M12 21h4' stroke='%23f7f1e6' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,600;0,700;1,500&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Nanum+Myeongjo:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ["Pretendard", "Apple SD Gothic Neo", "sans-serif"],
+            serif: ["Nanum Myeongjo", "Cormorant Garamond", "Palatino", "serif"]
+          }
+        }
+      }
+    };
+  </script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="min-h-screen">
+  <section id="auth-screen" class="auth-screen">
+    <div class="panel w-full max-w-md px-6 py-7 sm:px-8">
+      <p class="kicker">JEONBUK NATIONAL UNIVERSITY<br>ENGLISH LANGUAGE &amp; LITERATURE</p>
+      <h1 class="display mt-3 text-[2.6rem] leading-none text-[#002147]">Folio</h1>
+      <p id="auth-lead" class="muted mt-3 text-sm leading-6">영어 지문 분석실에 들어가려면 로그인하세요.</p>
+      <div class="auth-tabs" role="tablist">
+        <button id="show-login" type="button" class="auth-tab" data-active="true" role="tab" aria-selected="true">로그인</button>
+        <button id="show-signup" type="button" class="auth-tab" data-active="false" role="tab" aria-selected="false">회원가입</button>
+      </div>
+      <form id="auth-form" class="mt-5">
+        <label for="auth-email" class="text-sm font-semibold">이메일</label>
+        <input id="auth-email" class="field mt-2" type="email" autocomplete="username" required placeholder="name@example.com">
+        <label for="auth-password" class="mt-4 block text-sm font-semibold">비밀번호</label>
+        <input id="auth-password" class="field mt-2" type="password" autocomplete="current-password" required placeholder="6자 이상">
+        <p id="auth-message" class="mt-3 min-h-[1.25rem] text-sm" role="status"></p>
+        <button id="auth-submit" type="submit" class="btn-primary mt-2 w-full py-3">로그인</button>
+      </form>
+      <p class="muted mt-4 text-xs leading-5">서버 연결 전 시연용입니다. 가입 정보는 이 브라우저 안에만 남고, 비밀번호는 서버로 전송되지 않습니다.</p>
+    </div>
+  </section>
+
+  <div id="app-screen" class="hidden" data-ready="false">
+  <header class="masthead">
+    <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-5 py-4">
+      <div class="flex items-center gap-3">
+        <div class="crest" aria-hidden="true">
+          <svg viewBox="0 0 32 32" class="h-6 w-6" fill="none">
+            <path d="M8 7.5h12.2A1.8 1.8 0 0 1 22 9.3V25H10.2A2.2 2.2 0 0 0 8 27.2V7.5z" stroke="currentColor" stroke-width="1.6"/>
+            <path d="M12 12.5h7M12 16.5h7M12 20.5h4.5" stroke="#c4a46a" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div>
+          <p class="display masthead-title">Folio</p>
+          <p class="masthead-sub">AI Passage Studio</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <p id="session-email" class="masthead-mail"></p>
+        <button id="logout" type="button" class="btn-mast shrink-0 whitespace-nowrap">로그아웃</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="mx-auto grid max-w-6xl gap-6 px-5 py-8 lg:grid-cols-2 lg:items-start">
+    <section class="panel px-5 py-6 sm:px-6">
+      <p class="kicker">JEONBUK NATIONAL UNIVERSITY<br>ENGLISH LANGUAGE &amp; LITERATURE</p>
+      <h1 class="serif mt-2 text-[1.85rem] leading-tight">영어 지문 분석실</h1>
+      <p class="muted mt-2 text-sm leading-6">영어 지문을 직접 입력하거나 사진을 올린 뒤 제출하세요.</p>
+
+      <details class="guide">
+        <summary class="cursor-pointer font-medium">사용 순서</summary>
+        <ol class="mt-2 list-decimal space-y-1 pl-4">
+          <li>이메일과 비밀번호로 로그인합니다. 처음이면 회원가입을 먼저 하세요.</li>
+          <li>위쪽 사진 영역에 파일을 올리거나 촬영하면 한글과 영어가 아래 칸에 채워집니다. 틀린 글자는 그 칸에서 고칩니다.</li>
+          <li>제출을 누르면 해석, 요약, 해설, 변형 문제가 열립니다.</li>
+          <li>원하는 분석을 고른 뒤 다시 제출합니다. 변형 문제는 정답을 나중에 여세요.</li>
+        </ol>
+        <p class="muted mt-2 text-xs leading-5">파일을 더블클릭해 열면 브라우저가 API 응답을 막을 수 있습니다. 이 폴더에서 <code class="rounded bg-white px-1">python3 server.py</code> 를 실행한 뒤 <code class="rounded bg-white px-1">http://localhost:8000</code> 으로 여세요.</p>
+      </details>
+
+      <div id="input-stack" class="input-stack">
+        <section id="image-entry" class="input-block" aria-labelledby="image-entry-title">
+          <h2 id="image-entry-title" class="text-sm font-semibold">사진 촬영 / 파일 업로드</h2>
+          <p class="muted mt-1 text-xs leading-5">파일을 올리거나 촬영하면 이 브라우저가 한글과 영어를 읽어 아래 칸에 넣습니다.</p>
+          <div class="source-tabs" role="tablist" aria-label="사진 입력 방식">
+            <button id="show-file" type="button" class="source-tab" data-active="true" role="tab" aria-selected="true" aria-controls="file-pane">파일 올리기</button>
+            <button id="show-live" type="button" class="source-tab" data-active="false" role="tab" aria-selected="false" aria-controls="live-pane">실시간 촬영</button>
+          </div>
+
+          <div id="file-pane" role="tabpanel" aria-labelledby="show-file">
+            <div id="dropzone" data-hot="false" class="relative mt-3">
+              <div class="drop text-center">
+                <div id="drop-empty">
+                  <span class="block text-sm font-semibold">영어 지문 사진</span>
+                  <span class="muted mt-1 block text-xs leading-5">JPG · PNG · WEBP. 이 영역으로 파일을 끌어다 놓으세요.</span>
+                </div>
+                <img id="preview" alt="올린 지문 사진" class="hidden max-h-64 w-full rounded-lg bg-[#f3ecdf] object-contain">
+                <div class="upload-actions">
+                  <label class="btn-line">파일 선택
+                    <input id="file" class="sr-only" type="file" accept="image/*">
+                  </label>
+                </div>
+              </div>
+              <button id="remove-image" type="button" class="btn-line absolute right-3 top-3 z-10 hidden bg-white">사진 제거</button>
+            </div>
+          </div>
+
+          <div id="live-pane" class="hidden" role="tabpanel" aria-labelledby="show-live">
+            <div class="live-stage">
+              <video id="live-video" data-on="false" autoplay playsinline muted></video>
+              <p id="live-placeholder" class="live-placeholder">카메라 시작을 누르면 웹캠 또는 휴대폰 카메라 화면이 여기 나타납니다. 지문이 선명하게 보이도록 맞춘 뒤 사진 촬영을 누르세요.</p>
+            </div>
+            <div class="upload-actions">
+              <button id="start-camera" type="button" class="btn-line">카메라 시작</button>
+              <button id="flip-camera" type="button" class="btn-line hidden">전면/후면</button>
+              <button id="capture-photo" type="button" class="btn-primary" disabled>사진 촬영</button>
+              <button id="stop-camera" type="button" class="btn-ghost hidden">카메라 끄기</button>
+              <label id="camera-fallback" class="btn-line hidden">카메라 앱으로 찍기
+                <input id="camera" class="sr-only" type="file" accept="image/*" capture="environment">
+              </label>
+            </div>
+            <canvas id="capture-canvas" class="hidden"></canvas>
+          </div>
+          <p id="image-name" class="muted mt-2 hidden text-xs"></p>
+          <p id="image-message" class="mt-2 hidden text-sm text-[#7a3328]"></p>
+        </section>
+
+        <section id="text-entry" class="input-block" aria-labelledby="text-entry-title">
+          <p class="or-rule">또는</p>
+          <div class="mt-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <label id="text-entry-title" for="passage" class="text-sm font-semibold">지문 직접 입력</label>
+            <p id="passage-count" class="muted text-xs">아직 지문이 없습니다</p>
+          </div>
+          <p id="ocr-status" class="ocr-status hidden" role="status" aria-live="polite"></p>
+          <textarea id="passage" class="field passage-face mt-2 text-[15px] leading-7" lang="en" spellcheck="true" placeholder="영어 지문을 입력하거나 붙여 넣으세요. Paste an English passage."></textarea>
+          <div id="vocab-notes" class="vocab-notes hidden" aria-label="어휘 주석"></div>
+          <p id="length-warn" class="gold mt-2 hidden text-xs">지문이 깁니다. 호출 비용과 대기 시간이 늘 수 있으니, 필요한 문단만 남겨 보세요.</p>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button id="load-sample" type="button" class="btn-line">예시 지문 넣기</button>
+            <button id="clear-passage" type="button" class="btn-ghost">지문 지우기</button>
+          </div>
+          <p id="source-note" class="muted mt-2 hidden text-xs leading-5">텍스트와 사진이 함께 있습니다. 분석은 입력한 텍스트를 기준으로 합니다. 사진만 분석하려면 텍스트를 지우세요.</p>
+        </section>
+      </div>
+
+      <div id="analysis-tools" class="is-concealed" aria-hidden="true">
+      <h2 class="mt-6 text-sm font-semibold">분석 종류</h2>
+      <p class="muted mt-1 text-xs leading-5">하나를 고른 뒤, 아래 제출 버튼으로 요청을 보냅니다.</p>
+      <div id="task-grid" class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2" role="group" aria-label="분석 종류">
+        <button type="button" class="task-btn" data-task="translate" data-active="true" aria-pressed="true">
+          <span class="task-no serif text-sm text-[#9a7b4f]">01</span>
+          <span class="mt-2 block text-[15px] font-semibold">직독직해</span>
+          <span class="task-sub mt-1 block text-sm leading-5 text-[#5c564c]">의미 단위로 끊은 영어와 한국어</span>
+        </button>
+        <button type="button" class="task-btn" data-task="summary" data-active="false" aria-pressed="false">
+          <span class="task-no serif text-sm text-[#9a7b4f]">02</span>
+          <span class="mt-2 block text-[15px] font-semibold">핵심 요약</span>
+          <span class="task-sub mt-1 block text-sm leading-5 text-[#5c564c]">중심 생각과 근거가 되는 표현</span>
+        </button>
+        <button type="button" class="task-btn" data-task="annotate" data-active="false" aria-pressed="false">
+          <span class="task-no serif text-sm text-[#9a7b4f]">03</span>
+          <span class="mt-2 block text-[15px] font-semibold">구문/어휘 해설</span>
+          <span class="task-sub mt-1 block text-sm leading-5 text-[#5c564c]">독해에 걸리는 구문과 문맥 속 어휘</span>
+        </button>
+        <button type="button" class="task-btn" data-task="transform" data-active="false" aria-pressed="false">
+          <span class="task-no serif text-sm text-[#9a7b4f]">04</span>
+          <span class="mt-2 block text-[15px] font-semibold">변형 문제 생성 (빈칸/순서배열)</span>
+          <span class="task-sub mt-1 block text-sm leading-5 text-[#5c564c]">풀어 본 뒤 정답과 해설을 엽니다</span>
+        </button>
+      </div>
+      </div>
+      <button id="submit-analysis" type="button" class="btn-submit">제출</button>
+      <p id="submit-hint" class="muted mt-2 text-center text-xs leading-5">지문을 넣은 뒤 제출하면 해석, 요약, 해설, 변형 문제가 열립니다.</p>
+      <p id="input-message" class="mt-3 hidden text-sm leading-6 text-[#7a3328]" role="alert"></p>
+    </section>
+
+    <section id="result-panel" class="panel is-concealed px-5 py-6 sm:px-6" aria-labelledby="result-title" aria-hidden="true">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <p id="result-kicker" class="kicker">READY</p>
+          <h2 id="result-title" tabindex="-1" class="serif mt-1 text-[1.7rem] leading-tight outline-none">분석 결과</h2>
+        </div>
+        <div class="flex shrink-0 gap-1">
+          <button id="copy-result" type="button" class="btn-ghost hidden">결과 복사</button>
+          <button id="clear-result" type="button" class="btn-ghost hidden">지우기</button>
+        </div>
+      </div>
+      <div id="result-body" class="mt-5 min-h-64" aria-live="polite"></div>
+      <p id="result-meta" class="muted mt-6 text-xs"></p>
+      <p class="muted mt-1 text-xs leading-5">생성된 해설과 문제는 초고입니다. 제출 전에는 지문과 대조해 확인하세요.</p>
+    </section>
+  </main>
+
+  <footer class="mx-auto max-w-6xl px-5 pb-16 text-xs leading-5 text-[#5c564c]">
+    Folio는 전북대학교 영어영문학과 과제를 위한 프로토타입입니다. 분석 제출을 누를 때만 저장된 키가 선택한 서비스로 전송됩니다.
+  </footer>
+  </div>
+
+  <template id="empty-template">
+    <p class="empty-note">지문을 넣고 분석 종류를 고른 뒤 제출하면, 새로고침 없이 이 칸에 수업 자료 형태로 결과가 나타납니다.</p>
+    <ul class="mt-5 space-y-3 text-sm">
+      <li class="flex gap-3"><span class="serif w-8 text-[#9a7b4f]">01</span><span>문장별 영어 청크와 직독직해</span></li>
+      <li class="flex gap-3"><span class="serif w-8 text-[#9a7b4f]">02</span><span>한 문장 핵심과 근거 표현</span></li>
+      <li class="flex gap-3"><span class="serif w-8 text-[#9a7b4f]">03</span><span>구문 풀이와 문맥 어휘</span></li>
+      <li class="flex gap-3"><span class="serif w-8 text-[#9a7b4f]">04</span><span>빈칸 추론과 순서 배열, 접힌 정답</span></li>
+    </ul>
+  </template>
+
+  <dialog id="settings" aria-labelledby="settings-title">
+    <form id="settings-form" class="sheet panel px-5 py-5 sm:px-6">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <p class="kicker">CONNECTION</p>
+          <h2 id="settings-title" class="serif mt-1 text-2xl">API 설정</h2>
+        </div>
+        <button id="close-settings" type="button" class="btn-ghost" aria-label="닫기">닫기</button>
+      </div>
+      <p class="muted mt-3 text-sm leading-6">이 화면은 일반 메뉴에 없습니다. 저장한 키는 이 브라우저의 localStorage에 남아 다음에도 유지되고, 분석 제출을 누를 때만 전송됩니다. 공용 컴퓨터에서는 끝난 뒤 키를 지우세요.</p>
+      <p id="saved-key-status" class="navy mt-2 text-xs font-medium"></p>
+
+      <fieldset class="mt-5">
+        <legend class="text-sm font-semibold">서비스</legend>
+        <div class="mt-2 grid grid-cols-2 gap-2">
+          <label class="flex cursor-pointer items-center gap-2 rounded-xl border border-[#d9cbb6] bg-white px-3 py-3 text-sm">
+            <input type="radio" name="provider" value="openai" checked>
+            OpenAI
+          </label>
+          <label class="flex cursor-pointer items-center gap-2 rounded-xl border border-[#d9cbb6] bg-white px-3 py-3 text-sm">
+            <input type="radio" name="provider" value="gemini">
+            Gemini
+          </label>
+        </div>
+      </fieldset>
+
+      <label for="api-key" class="mt-4 block text-sm font-semibold">API 키</label>
+      <div class="mt-2 flex gap-2">
+        <input id="api-key" class="field" type="password" autocomplete="off" spellcheck="false" placeholder="키를 붙여 넣으세요">
+        <button id="toggle-key" type="button" class="btn-line shrink-0">보기</button>
+      </div>
+      <p id="key-hint" class="muted mt-2 text-xs leading-5"></p>
+      <p class="muted mt-1 text-xs leading-5">
+        발급:
+        <a id="key-link" class="navy font-semibold underline decoration-[#d4c6b2] underline-offset-4" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">키 만들기 페이지</a>
+      </p>
+
+      <label for="model-preset" class="mt-4 block text-sm font-semibold">모델</label>
+      <select id="model-preset" class="field mt-2"></select>
+      <div id="custom-model-wrap" class="mt-2 hidden">
+        <label for="custom-model" class="muted text-xs font-medium">모델 이름</label>
+        <input id="custom-model" class="field mt-1" type="text" spellcheck="false" placeholder="예: gpt-4.1-mini">
+      </div>
+      <p class="muted mt-2 text-xs leading-5">사진 분석을 쓰려면 이미지를 읽는 모델이어야 합니다. 목록에 있는 모델은 이미지를 받을 수 있습니다.</p>
+
+      <details id="base-url-wrap" class="guide">
+        <summary class="cursor-pointer text-sm font-medium">OpenAI 주소가 다를 때만</summary>
+        <p class="muted mt-2 text-xs leading-5">기본 주소를 그대로 두세요. 주소를 바꾸면 API 키도 그 서버로 갑니다.</p>
+        <label for="base-url" class="mt-2 block text-xs font-medium">API 주소</label>
+        <input id="base-url" class="field mt-1" type="url" spellcheck="false" value="https://api.openai.com/v1">
+      </details>
+
+      <p class="muted mt-4 text-xs leading-5">키를 저장하면 이 브라우저를 닫았다가 다시 열어도 유지됩니다. 호출마다 계정의 크레딧이 사용됩니다.</p>
+
+      <p id="form-error" class="mt-3 text-sm text-[#7a3328]" role="alert"></p>
+      <p id="test-status" class="navy mt-1 text-sm" role="status"></p>
+
+      <div class="sheet-foot">
+        <button id="test-connection" type="button" class="btn-line">연결 테스트</button>
+        <button type="submit" class="btn-primary">저장하고 닫기</button>
+        <button id="clear-key" type="button" class="btn-ghost">키 지우기</button>
+      </div>
+    </form>
+  </dialog>
+
+  <button id="admin-mark" type="button" class="admin-mark" aria-label="Folio">
+    <svg viewBox="0 0 32 32" class="h-5 w-5" fill="none" aria-hidden="true">
+      <path d="M8 7.5h12.2A1.8 1.8 0 0 1 22 9.3V25H10.2A2.2 2.2 0 0 0 8 27.2V7.5z" stroke="currentColor" stroke-width="1.6"/>
+      <path d="M12 12.5h7M12 16.5h7M12 20.5h4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+  </button>
+
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+  <script src="app.js"></script>
+
+</body>
+</html>
