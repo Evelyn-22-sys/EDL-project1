@@ -139,7 +139,12 @@
             <label id="text-entry-title" for="passage" class="text-sm font-semibold">지문 직접 입력</label>
             <p id="passage-count" class="muted text-xs">아직 지문이 없습니다</p>
           </div>
-          <p id="ocr-status" class="ocr-status hidden" role="status" aria-live="polite"></p>
+          <div id="ocr-status" class="ocr-status hidden" role="status" aria-live="polite">
+            <p id="ocr-status-text" class="ocr-status-text"></p>
+            <div id="ocr-progress-track" class="progress-track hidden" aria-hidden="true">
+              <div id="ocr-progress-bar" class="progress-bar"></div>
+            </div>
+          </div>
           <textarea id="passage" class="field passage-face mt-2 text-[15px] leading-7" lang="en" spellcheck="true" placeholder="영어 지문을 입력하거나 붙여 넣으세요. Paste an English passage."></textarea>
           <div id="vocab-notes" class="vocab-notes hidden" aria-label="어휘 주석"></div>
           <p id="length-warn" class="gold mt-2 hidden text-xs">지문이 깁니다. 호출 비용과 대기 시간이 늘 수 있으니, 필요한 문단만 남겨 보세요.</p>

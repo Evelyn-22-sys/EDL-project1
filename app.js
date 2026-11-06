@@ -41,14 +41,14 @@
         title: "직독직해",
         loading: "문장마다 직독직해를 나누고 있습니다.",
         instruction: [
-          "영어 지문을 직독직해 JSON으로만 답하세요. 의역과 해설은 쓰지 않습니다.",
+          "영어 지문을 직독직해 JSON으로만 답하세요. 문장 전체를 한 번에 읽고, 슬래시 조각을 따로 번역 요청으로 나누지 않습니다.",
+          "각 문장은 {\"engChunks\":[\"...\"],\"korChunks\":[\"...\"]} 입니다. korChunks 개수는 engChunks 개수와 같아야 합니다.",
           "규칙 1 문장 분할: 마침표, 물음표, 느낌표에서만 문장을 나눕니다. 큰따옴표 안의 온점은 문장을 나누지 않습니다. Mr. Mrs. Ms. Dr. Prof.와 U.S. 같은 약어의 온점도 문장을 나누지 않습니다. 인용문 뒤의 she said, I said 같은 화자 태그는 그 태그 끝의 온점까지 같은 문장으로 둡니다.",
-          "규칙 2 청크: 각 문장을 의미 단위로 나누어 chunks에 담습니다. in, on, at, to, with, from, by, for, of, about 같은 전치사 앞에서 나누고, to와 동사원형이 이어진 뒤에도 나눕니다. 예시는 to eat 다음을 I figured와 분리하는 것입니다. 문장 맨 앞의 전치사, 구동사, 관용구 내부는 나누지 않습니다.",
-          "규칙 3 직역: literal_chunks는 chunks와 길이와 순서가 같은 한국어 의미 직역입니다. 영어 철자를 한글 발음으로 옮기지 않습니다. 인용 속 인사와 호칭도 그 뜻으로 옮기고, AJ처럼 대문자만 있는 이니셜은 라틴 글자로 남깁니다.",
-          "규칙 4 마커: 화면은 청크 사이를 슬래시로 잇고 문장 끝에 // 를 붙입니다. JSON 원소에는 슬래시와 // 를 넣지 않습니다.",
+          "규칙 2: engChunks는 입력 문장에 이미 들어 있는 슬래시 사이의 영어 원문입니다. 슬래시 위치를 바꾸지 않습니다.",
+          "영어 철자를 한글 발음으로 옮기지 않습니다. 인용 속 인사와 호칭도 그 뜻으로 옮기고, AJ처럼 대문자만 있는 이니셜은 라틴 글자로 남깁니다.",
+          "JSON 원소에는 슬래시와 // 를 넣지 않습니다.",
           "JSON 형식:",
-          '{"transcript":"","sentences":[{"original":"Maybe at least they\'d have some good junk food to eat, I figured.","chunks":["Maybe at least they\'d have","some good junk food","to eat","I figured."],"literal_chunks":["아마도 적어도 그들은 가질 것이다","어떤 좋은 정크푸드를","먹을","나는 생각했다."]}]}',
-          "chunks와 literal_chunks의 길이와 순서는 같아야 합니다. literal_chunks의 각 원소는 그 청크의 한국어 직역만 씁니다."
+          '{"sentences":[{"engChunks":["The economic benefit","of culturtainment","makes it attractive","to politicians","and policy makers alike."],"korChunks":["경제적 이득은","컬처테인먼트의","그것을 매력적으로 만들고","정치인들에게","그리고 정책 입안자들에게도 마찬가지다."]}]}'
         ].join("\n")
       },
       summary: {
@@ -93,22 +93,31 @@
     var TRANSLATE_SCHEMA = {
       type: "object",
       properties: {
-        transcript: { type: "string" },
         sentences: {
           type: "array",
           items: {
             type: "object",
             properties: {
-              original: { type: "string" },
-              chunks: { type: "array", items: { type: "string" } },
-              literal_chunks: { type: "array", items: { type: "string" } }
+              engChunks: { type: "array", items: { type: "string" } },
+              korChunks: { type: "array", items: { type: "string" } }
             },
-            required: ["original", "chunks", "literal_chunks"]
+            required: ["engChunks", "korChunks"]
           }
         }
       },
-      required: ["transcript", "sentences"]
+      required: ["sentences"]
     };
+
+    var TRANSLATE_SYSTEM_PROMPT = [
+      "You are an expert English-to-Korean direct-reading (직독직해) translation engine.",
+      "When translating, you MUST follow this internal multi-stage reasoning process sequentially before returning the final output:",
+      "",
+      "1. [Phase 1 - Global Context Analysis]: Read the entire passage provided to understand the overall context, topic, and flow. (Internal reasoning only, do not output to user)",
+      "2. [Phase 2 - Sentence-level Comprehension]: Read each sentence completely, interpret its full grammatical structure and holistic meaning within the context.",
+      "3. [Phase 3 - Chunk-level Direct Translation Mapping]: Match the holistic sentence meaning to the provided English chunk array (`engChunks`). Generate a Korean chunk array (`korChunks`) that has the EXACT same length as `engChunks`, ensuring 1:1 index alignment. Each Korean chunk must reflect natural direct-reading order while preserving the overall sentence context. Never translate chunks in isolation without sentence-level context.",
+      "",
+      "Output Format: Return strictly {\"sentences\":[{\"engChunks\":[\"...\"],\"korChunks\":[\"...\"]}]}. korChunks must have the exact same length and order as engChunks."
+    ].join("\n");
 
     var SYSTEM_PROMPT = [
       "당신은 한국 대학교 영어영문학 수업의 독해 조교입니다.",
@@ -117,7 +126,9 @@
       "출력은 하나의 JSON 객체뿐입니다. 코드펜스나 서론을 붙이지 않습니다.",
       "이미지가 있고 입력 텍스트가 비어 있으면 이미지의 영어 지문을 먼저 읽어 transcript에 넣습니다.",
       "입력 텍스트가 있으면 그 텍스트만 분석하고 transcript는 빈 문자열로 둡니다.",
-      "지문이 영어가 아니거나 너무 짧으면 내용 배열을 비우고 error 필드에 한국어로 이유를 적습니다."
+      "지문이 영어가 아니거나 너무 짧으면 내용 배열을 비우고 error 필드에 한국어로 이유를 적습니다.",
+      "직독직해는 문장 전체의 직독직해 완성본을 먼저 만든 뒤, 그 문장을 영어 청크 개수에 맞게 나눕니다.",
+      "단어별 기계적 직역은 금지합니다. 한국어 청크 배열의 길이는 영어 청크 배열과 같아야 합니다."
     ].join(" ");
 
     var els = {
@@ -147,6 +158,9 @@
       imageName: document.getElementById("image-name"),
       imageMessage: document.getElementById("image-message"),
       ocrStatus: document.getElementById("ocr-status"),
+      ocrStatusText: document.getElementById("ocr-status-text"),
+      ocrProgressTrack: document.getElementById("ocr-progress-track"),
+      ocrProgressBar: document.getElementById("ocr-progress-bar"),
       vocabNotes: document.getElementById("vocab-notes"),
       sourceNote: document.getElementById("source-note"),
       taskGrid: document.getElementById("task-grid"),
@@ -204,7 +218,16 @@
     var ocrJob = 0;
     var ocrListen = 0;
     var ocrQueue = Promise.resolve();
+    var ocrWorker = null;
     var ocrWorkerPromise = null;
+    var ocrWorkerToken = 0;
+    var ocrStatusFrame = 0;
+    var ocrStatusQueued = null;
+    var sourceNoteTimer = 0;
+    var sentenceMemo = new Map();
+    var slashMemo = new Map();
+    var chunkMemo = new Map();
+    var koreanMemo = new Map();
     var OCR_FAIL = "이미지에서 텍스트를 추출하지 못했습니다. 아래 텍스트에 직접 입력해주세요.";
     var abortController = null;
     var requestKind = null;
@@ -576,12 +599,53 @@
       }
     }
 
-    function setOcrStatus(text, busy, warn) {
-      if (!els.ocrStatus) return;
-      els.ocrStatus.textContent = text || "";
-      els.ocrStatus.classList.toggle("hidden", !text);
-      els.ocrStatus.classList.toggle("is-busy", Boolean(busy));
-      els.ocrStatus.classList.toggle("is-warn", Boolean(warn));
+    function paintOcrStatus() {
+      var next = ocrStatusQueued;
+      if (!next || !els.ocrStatus) return;
+      if (els.ocrStatusText) els.ocrStatusText.textContent = next.text || "";
+      else els.ocrStatus.textContent = next.text || "";
+      els.ocrStatus.classList.toggle("hidden", !next.text);
+      els.ocrStatus.classList.toggle("is-busy", Boolean(next.busy));
+      els.ocrStatus.classList.toggle("is-warn", Boolean(next.warn));
+      var ratio = typeof next.progress === "number" ? Math.max(0, Math.min(1, next.progress)) : -1;
+      var showBar = Boolean(next.busy) && ratio >= 0;
+      if (els.ocrProgressTrack) els.ocrProgressTrack.classList.toggle("hidden", !showBar);
+      if (els.ocrProgressBar && showBar) els.ocrProgressBar.style.width = Math.round(ratio * 100) + "%";
+    }
+
+    function setOcrStatus(text, busy, warn, progress) {
+      ocrStatusQueued = { text: text, busy: busy, warn: warn, progress: progress };
+      if (!busy) {
+        if (ocrStatusFrame) window.cancelAnimationFrame(ocrStatusFrame);
+        ocrStatusFrame = 0;
+        paintOcrStatus();
+        return;
+      }
+      if (ocrStatusFrame) return;
+      ocrStatusFrame = window.requestAnimationFrame(function () {
+        ocrStatusFrame = 0;
+        paintOcrStatus();
+      });
+    }
+
+    function yieldToUi() {
+      return new Promise(function (resolve) {
+        window.requestAnimationFrame(function () {
+          window.setTimeout(resolve, 0);
+        });
+      });
+    }
+
+    function remember(cache, key, value) {
+      if (cache.has(key)) cache.delete(key);
+      cache.set(key, value);
+      if (cache.size > 80) cache.delete(cache.keys().next().value);
+      return value;
+    }
+
+    function scheduleSourceNote() {
+      window.clearTimeout(sourceNoteTimer);
+      sourceNoteTimer = window.setTimeout(updateSourceNote, 140);
     }
 
     function writePassage(text) {
@@ -912,6 +976,77 @@
       return "passage";
     }
 
+    function stripScoreMarks(text) {
+      return String(text || "")
+        .replace(/[\[【［(（]\s*\d{1,2}(?:\s*[.．]\s*\d+)?\s*점\s*[\]】］)）]/g, " ")
+        .replace(/[ \t]{2,}/g, " ")
+        .trim();
+    }
+
+    function isExamStem(text) {
+      var value = String(text || "").trim();
+      if (!value || parseVocabEntries(value).length) return false;
+      var hangul = (value.match(/[가-힣]/g) || []).length;
+      if (hangul < 4) return false;
+      return /다음\s*글|밑줄\s*친|빈칸에|주어진\s*글|가장\s*적절한|고르시오|골라|내용과\s*일치|일치하지|불일치|요지|주제|제목|흐름으로|순서에|삽입하|요약하|지칭|어법|어휘의\s*쓰임|배점|들어가기에/.test(value);
+    }
+
+    function salvageEnglish(text) {
+      var parts = String(text || "").split(/(?<=[?？.])\s+(?=[A-Z])/);
+      if (parts.length < 2) return "";
+      var tail = parts.slice(1).join(" ").trim();
+      var latin = (tail.match(/[A-Za-z]/g) || []).length;
+      var hangul = (tail.match(/[가-힣]/g) || []).length;
+      if (latin >= 20 && latin > hangul) return tail;
+      return "";
+    }
+
+    function extractExamBody(text) {
+      var kept = [];
+      String(text || "").split(/\n/).forEach(function (rawLine) {
+        var line = stripScoreMarks(String(rawLine || "").replace(/[ \t]+/g, " ").trim());
+        if (!line) return;
+        var vocab = normalizeVocabAnnotation(line);
+        if (parseVocabEntries(line).length || parseVocabEntries(vocab).length) {
+          kept.push(vocab);
+          return;
+        }
+        var head = line.match(/^\s*(?:[\[【［(（]\s*(\d{1,2})\s*[\]】］)）]|(\d{1,2})\s*[.．)](?!\d))\s*([\s\S]*)$/);
+        if (head) {
+          var number = Number(head[1] || head[2]);
+          var rest = stripScoreMarks(head[3] || "");
+          if (!rest || isExamStem(rest) || isExamStem(line)) {
+            var saved = salvageEnglish(rest);
+            if (saved) kept.push(saved);
+            return;
+          }
+          if (number >= 1 && number <= 5) return;
+          line = rest;
+        }
+        if (/^\s*[\[【［(（]?\s*\d{1,2}\s*점\s*[\]】］)）]?\s*$/.test(line)) return;
+        if (isExamStem(line)) {
+          var savedStem = salvageEnglish(line);
+          if (savedStem) kept.push(savedStem);
+          return;
+        }
+        if (isChoiceLine(line)) return;
+        var hangul = (line.match(/[가-힣]/g) || []).length;
+        var latin = (line.match(/[A-Za-z]/g) || []).length;
+        if (hangul >= 6 && latin < 8) return;
+        kept.push(line);
+      });
+      return kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+    }
+
+    function analysisPassage(text) {
+      return extractExamBody(text).split("\n").map(function (line) {
+        var value = line.trim();
+        if (!value) return "";
+        if (parseVocabEntries(value).length && !/[.!?…]$/.test(value)) return value + ".";
+        return value;
+      }).filter(Boolean).join("\n");
+    }
+
     function structureOcrText(data) {
       var rows = orderOcrLines(ocrLineRecords(data)).map(function (line) {
         var text = sanitizeOcrGlyphs(normalizeOptionMarks(normalizeOcrPunctuation(normalizeVocabAnnotation(line.text))));
@@ -945,33 +1080,58 @@
       setOcrStatus(OCR_FAIL, false, true);
     }
 
+    function resetOcrWorker() {
+      var worker = ocrWorker;
+      ocrWorker = null;
+      ocrWorkerPromise = null;
+      ocrWorkerToken += 1;
+      if (worker && worker.terminate) worker.terminate();
+    }
+
     function loadOcrWorker() {
+      if (ocrWorker) return Promise.resolve(ocrWorker);
+      if (ocrWorkerPromise) return ocrWorkerPromise;
       if (!window.Tesseract || typeof Tesseract.createWorker !== "function") {
         return Promise.reject(new Error("ocr-library"));
       }
-      if (!ocrWorkerPromise) {
-        ocrWorkerPromise = Tesseract.createWorker("kor+eng", 1, {
-          workerPath: "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js",
-          corePath: "https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1",
-          langPath: "https://cdn.jsdelivr.net/gh/naptha/tessdata@gh-pages/4.0.0_fast",
-          cacheMethod: "write",
-          gzip: true,
-          logger: function (message) {
-            if (ocrListen !== ocrJob || !message) return;
-            var status = String(message.status || "");
-            var label = "글자 인식을 준비하고 있습니다";
-            if (status === "recognizing text") label = "사진에서 한글과 영어를 읽고 있습니다";
-            else if (status.indexOf("language") >= 0) label = "한국어와 영어 인식 데이터를 받는 중입니다. 처음 한 번은 조금 걸립니다";
-            else if (status.indexOf("core") >= 0 || status.indexOf("initializing") >= 0) label = "글자 인식 엔진을 준비하고 있습니다";
-            var pct = typeof message.progress === "number" ? "… " + Math.round(message.progress * 100) + "%" : "…";
-            setOcrStatus(label + pct, true, false);
-          }
-        }).catch(function (error) {
+      var token = ++ocrWorkerToken;
+      ocrWorkerPromise = Tesseract.createWorker("kor+eng", 1, {
+        workerPath: "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js",
+        corePath: "https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1",
+        langPath: "https://cdn.jsdelivr.net/gh/naptha/tessdata@gh-pages/4.0.0_fast",
+        cacheMethod: "write",
+        gzip: true,
+        logger: function (message) {
+          if (ocrListen !== ocrJob || !message) return;
+          var status = String(message.status || "");
+          var label = "글자 인식을 준비하고 있습니다";
+          if (status === "recognizing text") label = "사진에서 한글과 영어를 읽고 있습니다";
+          else if (status.indexOf("language") >= 0) label = "한국어와 영어 인식 데이터를 받는 중입니다. 처음 한 번은 조금 걸립니다";
+          else if (status.indexOf("core") >= 0 || status.indexOf("initializing") >= 0) label = "글자 인식 엔진을 준비하고 있습니다";
+          var progress = typeof message.progress === "number" ? message.progress : null;
+          var pct = progress == null ? "…" : "… " + Math.round(progress * 100) + "%";
+          setOcrStatus(label + pct, true, false, progress);
+        }
+      }).then(function (worker) {
+        if (token !== ocrWorkerToken) {
+          if (worker && worker.terminate) worker.terminate();
+          throw new Error("ocr-reset");
+        }
+        ocrWorker = worker;
+        ocrWorkerPromise = null;
+        return worker;
+      }).catch(function (error) {
+        if (token === ocrWorkerToken) {
+          ocrWorker = null;
           ocrWorkerPromise = null;
-          throw error;
-        });
-      }
+        }
+        throw error;
+      });
       return ocrWorkerPromise;
+    }
+
+    function warmOcrWorker() {
+      loadOcrWorker().catch(function () {});
     }
 
     function stopOcrListen(job) {
@@ -985,7 +1145,7 @@
         timedOut = true;
         if (job !== ocrJob) return;
         stopOcrListen(job);
-        ocrWorkerPromise = null;
+        resetOcrWorker();
         applyOcrFallback();
       }, 120000);
       try {
@@ -993,6 +1153,8 @@
         if (timedOut || job !== ocrJob) return;
         var result = await worker.recognize(dataUrl);
         if (timedOut || job !== ocrJob) return;
+        setOcrStatus("읽어 낸 글을 정리하고 있습니다…", true, false, 1);
+        await yieldToUi();
         var data = await refineChoiceDigits(worker, dataUrl, result && result.data || {});
         if (timedOut || job !== ocrJob) return;
         window.clearTimeout(timer);
@@ -1006,19 +1168,15 @@
           applyOcrFallback();
           return;
         }
-        writePassage(text);
+        var body = extractExamBody(text);
+        var bodyLatin = (body.match(/[A-Za-z]/g) || []).length;
+        writePassage(bodyLatin >= 20 ? body : text);
         setOcrStatus("사진에서 한글 " + hangul.toLocaleString("ko-KR") + "자와 영어 " + latin.toLocaleString("ko-KR") + "자를 읽었습니다. 아래 칸에서 맞는지 확인하고, 틀린 곳은 직접 고치세요.", false, false);
       } catch (error) {
         window.clearTimeout(timer);
         if (timedOut || job !== ocrJob) return;
         stopOcrListen(job);
-        var pending = ocrWorkerPromise;
-        ocrWorkerPromise = null;
-        if (pending && typeof pending.then === "function") {
-          pending.then(function (worker) {
-            if (worker && worker.terminate) worker.terminate();
-          }).catch(function () {});
-        }
+        resetOcrWorker();
         applyOcrFallback();
       }
     }
@@ -1201,7 +1359,7 @@
           }
         });
       }
-      parts.push({ text: system + "\n\n" + userText });
+      parts.push({ text: userText });
       var modelName = String(settings.model || defaultModel("gemini")).trim() || defaultModel("gemini");
       var endpoint = "https://generativelanguage.googleapis.com/v1beta/models/"
         + encodeURIComponent(modelName) + ":generateContent";
@@ -1218,6 +1376,7 @@
             "x-goog-api-key": settings.apiKey
           },
           body: JSON.stringify({
+            systemInstruction: { parts: [{ text: system || "" }] },
             contents: [{ role: "user", parts: parts }],
             generationConfig: generationConfig
           })
@@ -1328,7 +1487,21 @@
       var extra = hasImage
         ? "\n\n이미지가 첨부되어 있습니다. 텍스트가 비어 있을 때만 이미지를 읽고, 텍스트가 있으면 텍스트를 기준으로 하세요."
         : "";
-      return instruction + extra + "\n\n지문:\n\"\"\"\n" + source + "\n\"\"\"";
+      var plan = "";
+      if (passage && instruction.indexOf("직독직해") >= 0) plan = "\n\n" + chunkPlanText(passage);
+      return instruction + extra + plan + "\n\n지문:\n\"\"\"\n" + source + "\n\"\"\"";
+    }
+
+    function chunkPlanText(passage) {
+      var sentences = segmentSentences(passage);
+      var lines = [
+        "아래 각 줄은 슬래시(/)가 포함된 영어 문장 전체입니다. 이 문장을 통째로 번역하십시오.",
+        "조각을 개별 요청으로 나누지 마십시오. engChunks는 슬래시 사이의 원문이고, korChunks 길이는 engChunks 길이와 같아야 합니다."
+      ];
+      sentences.forEach(function (sentence, index) {
+        lines.push((index + 1) + ". " + slashSentence(sentence));
+      });
+      return lines.join("\n");
     }
 
     function setHeading(task) {
@@ -1440,6 +1613,7 @@
         + '<div class="wait-row">'
         + '<span class="spinner"></span>'
         + "<span>" + esc(info.loading + extra) + "</span></div>"
+        + '<div class="progress-track" aria-hidden="true"><div id="task-progress-bar" class="progress-bar"></div></div>'
         + '<div class="skeleton" aria-hidden="true">'
         + '<div class="skel skel-lg"></div>'
         + '<div class="skel"></div>'
@@ -1550,10 +1724,10 @@
       return false;
     }
 
-    function slashSentence(sentence) {
+    function slashSentenceCompute(sentence) {
       var tokens = [];
       var re = /[A-Za-z]+(?:['’][A-Za-z]+)?|\d+|[—–]|[^\s]/g;
-      var text = String(sentence || "").trim();
+      var text = String(sentence || "").replace(/\s*\/\/+\s*/g, " ").replace(/\s+\/\s+/g, " ").replace(/\s+/g, " ").trim();
       var match;
       while ((match = re.exec(text))) tokens.push(match[0]);
       var wordIndexes = [];
@@ -1644,6 +1818,67 @@
         breakAt[wordIndexes[wordPos]] = true;
         last = wordPos;
       }
+      function isFiniteVerb(word, afterHead) {
+        var low = String(word || "");
+        if (/^(am|is|are|was|were|be|been|being|do|does|did|can|could|will|would|may|might|must|should|shall|have|has|had)$/i.test(low)) return true;
+        if (/^(make|makes|made|help|helps|helped|allow|allows|allowed|offer|offers|offered|provide|provides|provided|create|creates|created|show|shows|showed|bring|brings|brought|lead|leads|led|cause|causes|caused|require|requires|required|include|includes|included|involve|involves|involved|suggest|suggests|suggested|mean|means|meant|seem|seems|seemed|appear|appears|appeared|remain|remains|remained|become|becomes|became|enable|enables|enabled|give|gives|gave|take|takes|took|say|says|said|go|goes|went|come|comes|came|see|sees|saw|know|knows|knew|get|gets|got|want|wants|need|needs|tell|tells|told|think|thinks|thought|find|finds|found|keep|keeps|kept|let|lets|begin|begins|began|leave|leaves|left|use|uses|call|calls|called|work|works|worked|play|plays|played|try|tries|tried|start|starts|started|stop|stops|stopped|turn|turns|turned|run|runs|ran|put|puts|set|sets|ask|asks|asked|figure|figures|figured|read|reads|eat|eats|ate|treat|treats|treated|perform|performs|establish|establishes|notice|notices|enter|enters|gather|gathers|rush|rushes|miss|misses)$/i.test(low)) return true;
+        if (afterHead && /ed$/i.test(low) && low.length > 4 && !/^(unexpected|unopened|repeated|interested|supposed|alleged|complicated|limited|related|dedicated|sophisticated|cultivated)$/i.test(low)) return true;
+        return false;
+      }
+      function isPrepModifier(word) {
+        return /^(the|a|an|this|that|these|those|my|your|his|her|our|their|its|some|any|every|each|no|another|both|few|many|much|several|such|own|very|really|more|most|quite|rather|too|so|not|only|just|other|same|first|second|next|last|new|old|good|bad|great|little|small|large|high|low|long|short|early|late|young|main|public|social|political|cultural|economic|local|global|human|real|true|possible|important|different|various|certain|similar|special|general|common|major|modern|recent|current|natural|national|international|personal|private|official|original|final|single|simple|clear|full|free|open|whole|entire|best|better|worst|big|huge|key|mere|concrete|quiet|close|good|attractive)$/i.test(word);
+      }
+      function idiomObjectStart(prepPos) {
+        var a = (words[prepPos] || "").toLowerCase();
+        var b = (words[prepPos + 1] || "").toLowerCase();
+        var c = (words[prepPos + 2] || "").toLowerCase();
+        if ((a === "in" || a === "on" || a === "at" || a === "by" || a === "for") && idiomPrep[b + " " + c]) return prepPos + 3;
+        if (idiomPrep[a + " " + b]) return prepPos + 2;
+        return prepPos + 1;
+      }
+      function markAfterPrepObject(prepPos) {
+        if (isInfinitiveTo(prepPos)) return;
+        if (/^at$/i.test(words[prepPos]) && /^least$/i.test(words[prepPos + 1] || "")) return;
+        if (prepPos > 0 && isPhrasalParticle(words[prepPos - 1], words[prepPos])) return;
+        var i = idiomObjectStart(prepPos);
+        var sawHead = false;
+        while (i < words.length) {
+          var word = words[i];
+          if (isFiniteVerb(word, sawHead)) break;
+          if (sawHead && /^(i|you|we|they|he|she)$/i.test(word)) break;
+          if (sawHead && /^(the|a|an|this|that|these|those)$/i.test(word)) break;
+          if (sawHead && coordinator.test(word) && /^(and|or)$/i.test(word)) {
+            var k = i + 1;
+            var found = false;
+            while (k < words.length && !isFiniteVerb(words[k], true)) {
+              if (prep.test(words[k]) && !idiomHoldsPrep(k) && !isInfinitiveTo(k)) break;
+              if (coordinator.test(words[k]) || relative.test(words[k]) || subord.test(words[k])) break;
+              if (!isPrepModifier(words[k])) found = true;
+              k += 1;
+              if (found) break;
+            }
+            if (!found) break;
+            sawHead = true;
+            i = k;
+            continue;
+          }
+          if (sawHead && prep.test(word) && !isInfinitiveTo(i) && !idiomHoldsPrep(i)) break;
+          if (sawHead && (relative.test(word) || subord.test(word))) break;
+          if (isPrepModifier(word)) {
+            i += 1;
+            continue;
+          }
+          if (!/^[A-Za-z0-9]/.test(word) || coordinator.test(word) || relative.test(word) || subord.test(word) || prep.test(word)) break;
+          sawHead = true;
+          i += 1;
+        }
+        if (!sawHead || i >= words.length) return;
+        var boundary = isFiniteVerb(words[i], true) || /^(the|a|an|this|that|these|those)$/i.test(words[i]);
+        if (!boundary) return;
+        if (i - last < 1) return;
+        breakAt[wordIndexes[i]] = true;
+        last = i;
+      }
       function markAfterInfinitive(toPos) {
         var verb = words[toPos + 1] || "";
         var nextPos = toPos + 2;
@@ -1655,6 +1890,7 @@
         last = nextPos;
       }
       if (isInfinitiveTo(0)) markAfterInfinitive(0);
+      else if (prep.test(words[0])) markAfterPrepObject(0);
       var clauseSubject = -1;
       if (subord.test(words[0])) {
         for (var i = 3; i < words.length - 1; i += 1) {
@@ -1685,7 +1921,10 @@
           if (!idiomHoldsPrep(j)) mark(j);
           markAfterInfinitive(j);
         } else if (isBareObject(j)) mark(j);
-        else if (prep.test(word)) markPrep(j);
+        else if (prep.test(word)) {
+          markPrep(j);
+          markAfterPrepObject(j);
+        }
       }
       var hasBreak = false;
       for (var key in breakAt) {
@@ -1717,13 +1956,25 @@
       return out.replace(/\s+\/\s+/g, " / ").replace(/\s+([,.!?;:])/g, "$1").replace(/[ ]{2,}/g, " ").trim();
     }
 
-    function chunkParts(sentence) {
+    function slashSentence(sentence) {
+      var key = String(sentence || "").trim();
+      if (slashMemo.has(key)) return slashMemo.get(key);
+      return remember(slashMemo, key, slashSentenceCompute(key));
+    }
+
+    function chunkPartsCompute(sentence) {
       var text = String(sentence || "").trim();
       if (!text) return [];
       var parts = slashSentence(text).split(/\s+\/\s+/).map(function (part) {
         return part.trim();
       }).filter(Boolean);
       return parts.length ? parts : [text];
+    }
+
+    function chunkParts(sentence) {
+      var key = String(sentence || "").trim();
+      if (chunkMemo.has(key)) return chunkMemo.get(key);
+      return remember(chunkMemo, key, chunkPartsCompute(key));
     }
 
     function slashChunks(text) {
@@ -1778,28 +2029,150 @@
       return chunks;
     }
 
-    function koreanChunkList(item, english) {
+    function sentenceMappedChunks(sentence, engChunks) {
+      var whole = sanitizeKoreanChunk(koreanChunk(sentence));
+      if (!/[가-힣]/.test(whole)) return engChunks.map(function () { return ""; });
+      var mapped = splitByWeights(whole, engChunks.map(chunkWordCount));
+      while (mapped.length < engChunks.length) mapped.push("");
+      return mapped.slice(0, engChunks.length).map(function (part) {
+        return sanitizeKoreanChunk(part);
+      });
+    }
+
+    function modelKoreanList(item) {
       var provided = asArray(item && item.literal_chunks);
       if (!provided.length) provided = asArray(item && item.literalChunks);
+      if (!provided.length) provided = asArray(item && item.korChunks);
       if (!provided.length && Array.isArray(item && item.literal)) provided = item.literal;
-      if (chunksAreKorean(provided, english.length)) return provided.map(function (part) { return String(part).trim(); });
-      var literal = !Array.isArray(item && item.literal) ? String(item && item.literal || "") : "";
-      var marked = literal.split(/\s+\/\s+/).map(function (part) { return part.trim(); }).filter(Boolean);
-      if (chunksAreKorean(marked, english.length)) return marked;
-      return english.map(koreanChunk);
+      return provided;
+    }
+
+    function chunkKey(text) {
+      return String(text || "").replace(/\s+/g, " ").trim();
+    }
+
+    function sameChunkText(left, right) {
+      if (!left || !right || left.length !== right.length) return false;
+      for (var i = 0; i < left.length; i += 1) {
+        if (chunkKey(left[i]) !== chunkKey(right[i])) return false;
+      }
+      return true;
+    }
+
+    function chunkIsAlignedKorean(text) {
+      var value = String(text || "").trim();
+      if (!/[가-힣]/.test(value)) return false;
+      var words = value.match(/[A-Za-z]+(?:['’][A-Za-z]+)*/g) || [];
+      return words.every(keepLatinToken);
+    }
+
+    function validateChunkPair(engChunks, korChunks) {
+      var engLength = engChunks.length;
+      var korLength = korChunks.length;
+      var matched = engLength === korLength;
+      if (!matched) {
+        console.warn("청크 길이 불일치", "engChunks", engLength, "korChunks", korLength);
+      }
+      console.log("Eng Chunks:", engChunks, "Kor Chunks:", korChunks);
+      return matched;
+    }
+
+    function alignLiteralChunks(english, literals, sentence) {
+      var engChunks = asArray(english).map(chunkKey).filter(Boolean);
+      var korChunks = asArray(literals).map(function (part) { return String(part || "").trim(); });
+      validateChunkPair(engChunks, korChunks);
+      var fitted = korChunks.slice(0, engChunks.length);
+      while (fitted.length < engChunks.length) fitted.push("");
+      if (fitted.length !== korChunks.length) {
+        console.warn("청크 길이 보정", korChunks.length, "->", fitted.length);
+      }
+      fitted = fitted.map(function (part) {
+        var candidate = sanitizeKoreanChunk(part);
+        return /[가-힣]/.test(candidate) ? candidate : "";
+      });
+      if (engChunks.length && !fitted.some(function (part) { return /[가-힣]/.test(part); })) {
+        console.warn("문장 단위 보정", sentence || engChunks.join(" "));
+        fitted = sentenceMappedChunks(sentence || engChunks.join(" "), engChunks);
+      }
+      console.log("청크 매칭", engChunks.length + "개", fitted.map(function (part, index) {
+        return (index + 1) + ". " + engChunks[index] + " => " + part;
+      }));
+      return fitted;
+    }
+
+    function realignKorChunks(canonical, modelEng, modelKor) {
+      var eng = asArray(canonical).map(chunkKey).filter(Boolean);
+      var sourceEng = asArray(modelEng).map(chunkKey).filter(Boolean);
+      var sourceKor = asArray(modelKor).map(function (part) { return String(part || "").trim(); });
+      if (!eng.length) return [];
+      if (!sourceKor.length) return eng.map(function () { return ""; });
+      if (sourceEng.length && sameChunkText(eng, sourceEng)) {
+        var matched = sourceKor.slice(0, eng.length);
+        while (matched.length < eng.length) matched.push("");
+        return matched;
+      }
+      if (!sourceEng.length) {
+        if (sourceKor.length === 1 && eng.length > 1) {
+          return splitByWeights(sourceKor[0], eng.map(chunkWordCount));
+        }
+        var only = sourceKor.slice(0, eng.length);
+        while (only.length < eng.length) only.push("");
+        return only;
+      }
+      var owners = [];
+      sourceEng.forEach(function (chunk, index) {
+        var count = chunkWordCount(chunk);
+        for (var n = 0; n < count; n += 1) owners.push(index);
+      });
+      var groups = {};
+      var order = [];
+      var cursor = 0;
+      eng.forEach(function (chunk, index) {
+        var weight = chunkWordCount(chunk);
+        var owner = owners[Math.min(cursor, Math.max(owners.length - 1, 0))] || 0;
+        if (!groups[owner]) {
+          groups[owner] = [];
+          order.push(owner);
+        }
+        groups[owner].push({ index: index, weight: weight });
+        cursor += weight;
+      });
+      var out = eng.map(function () { return ""; });
+      order.forEach(function (owner) {
+        var members = groups[owner];
+        var korean = sourceKor[owner] || "";
+        if (members.length === 1) {
+          out[members[0].index] = korean;
+          return;
+        }
+        var pieces = splitByWeights(korean, members.map(function (member) { return member.weight; }));
+        members.forEach(function (member, index) {
+          out[member.index] = pieces[index] || "";
+        });
+      });
+      return out;
     }
 
     function bilingualChunks(item) {
-      var original = String(item && item.original || "").trim();
-      var english = chunkParts(original);
-      var korean = koreanChunkList(item, english).map(function (part, index) {
-        var clean = sanitizeKoreanChunk(part);
-        if (!/[가-힣]/.test(clean) || /[A-Za-z]/.test(clean)) clean = koreanChunk(english[index]);
-        clean = sanitizeKoreanChunk(clean);
-        return clean || "그 부분";
-      });
-      if (korean.length !== english.length) korean = english.map(koreanChunk);
-      return { en: english, ko: korean };
+      var modelEng = asArray(item && item.engChunks).map(chunkKey).filter(Boolean);
+      if (!modelEng.length) modelEng = asArray(item && item.chunks).map(chunkKey).filter(Boolean);
+      var modelKor = asArray(item && item.korChunks).map(function (part) { return String(part || "").trim(); });
+      if (!modelKor.length) modelKor = asArray(item && item.literal_chunks).map(function (part) { return String(part || "").trim(); });
+      var sourceText = String(item && item.original || "").replace(/\s*\/\/+\s*/g, " ").replace(/\s+\/\s+/g, " ").replace(/\s+/g, " ").trim();
+      if (!sourceText) sourceText = modelEng.join(" ");
+      var engChunks = sourceText ? chunkParts(sourceText) : modelEng.slice();
+      if (!engChunks.length) engChunks = modelEng.slice();
+      var korChunks = realignKorChunks(engChunks, modelEng, modelKor);
+      if (korChunks.length !== engChunks.length) {
+        console.warn("청크 길이 불일치", "engChunks", engChunks.length, "korChunks", korChunks.length);
+        korChunks = korChunks.slice(0, engChunks.length);
+        while (korChunks.length < engChunks.length) korChunks.push("");
+      }
+      console.log("API engChunks", modelEng);
+      console.log("API korChunks", modelKor);
+      console.log("동기화 engChunks", engChunks);
+      console.log("동기화 korChunks", korChunks);
+      return { en: engChunks, ko: korChunks };
     }
 
     function literalViewHtml(item) {
@@ -1947,7 +2320,7 @@
       return ch === "." || ch === "．" || ch === "。" || ch === "!" || ch === "?" || ch === "！" || ch === "？" || ch === "…";
     }
 
-    function segmentSentences(text) {
+    function segmentSentencesCompute(text) {
       var raw = String(text || "").replace(/\s+/g, " ").trim();
       if (!raw) return [];
       var spans = pairedQuoteSpans(raw);
@@ -2000,31 +2373,40 @@
       return sentences;
     }
 
+    function segmentSentences(text) {
+      var key = String(text || "");
+      if (sentenceMemo.has(key)) return sentenceMemo.get(key);
+      return remember(sentenceMemo, key, segmentSentencesCompute(key));
+    }
+
     function translateRows(data) {
       var source = asArray(data && data.sentences);
+      if (!source.length && data && (data.engChunks || data.korChunks)) source = [data];
       if (!source.length) source = asArray(data && data.paragraphs);
       var rows = [];
       source.forEach(function (item) {
         if (!item || typeof item !== "object") return;
+        var engChunks = asArray(item.engChunks);
+        if (!engChunks.length) engChunks = asArray(item.chunks);
+        var korChunks = asArray(item.korChunks);
+        if (!korChunks.length) korChunks = asArray(item.literal_chunks);
+        if (engChunks.length) {
+          rows.push({
+            original: String(item.original || engChunks.join(" ")),
+            engChunks: engChunks,
+            korChunks: korChunks,
+            chunks: engChunks,
+            literal_chunks: korChunks
+          });
+          return;
+        }
         var originals = segmentSentences(item.original);
         if (!originals.length) {
           var fallback = String(item.original || "").replace(/\s+/g, " ").trim();
           if (fallback) originals = [fallback];
         }
-        var literalText = Array.isArray(item.literal) ? "" : String(item.literal || "");
-        var literals = segmentSentences(literalText);
-        var aligned = originals.length > 1 && literals.length === originals.length;
-        originals.forEach(function (sentence, index) {
-          var row = {
-            original: sentence,
-            literal: aligned ? literals[index] : (index === 0 ? literalText : "")
-          };
-          if (originals.length === 1) {
-            row.chunks = asArray(item.chunks);
-            row.literal_chunks = asArray(item.literal_chunks).length ? asArray(item.literal_chunks) : asArray(item.literalChunks);
-            if (Array.isArray(item.literal)) row.literal_chunks = item.literal;
-          }
-          rows.push(row);
+        originals.forEach(function (sentence) {
+          rows.push({ original: sentence, engChunks: [], korChunks: [], chunks: [], literal_chunks: [] });
         });
       });
       return rows;
@@ -3526,7 +3908,7 @@
       return [subject, quoted, said].filter(Boolean).join(" ");
     }
 
-    function koreanChunk(text) {
+    function koreanChunkCompute(text) {
       var raw = String(text || "").trim();
       if (!raw) return "그 부분";
       if (!/["“”]/.test(raw)) return polish(translateChunk(raw), raw) || "그 부분";
@@ -3555,6 +3937,12 @@
         if (trailKo) parts.push(trailKo);
       }
       return stripLooseLatin(parts.join(", ")).replace(/[.!?…]+$/g, "").trim() || "그 부분";
+    }
+
+    function koreanChunk(text) {
+      var key = String(text || "").trim();
+      if (koreanMemo.has(key)) return koreanMemo.get(key);
+      return remember(koreanMemo, key, koreanChunkCompute(key));
     }
 
     function sanitizeKoreanChunk(text) {
@@ -3643,7 +4031,7 @@
     }
 
     function localSource(passage, hasImage) {
-      var text = String(passage || "").trim();
+      var text = analysisPassage(passage);
       if (text.length >= 40) return { text: text, fromImage: false };
       return { text: DEMO_PASSAGE, fromImage: Boolean(hasImage) };
     }
@@ -3680,6 +4068,36 @@
         return new RegExp("\\b" + String(word).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i").test(sentence);
       })[0];
       return found || sentences[0] || "";
+    }
+
+    function setTaskProgress(done, total) {
+      var bar = document.getElementById("task-progress-bar");
+      if (bar) bar.style.width = (total ? Math.round((done / total) * 100) : 0) + "%";
+      if (els.resultMeta && total) {
+        els.resultMeta.textContent = "문장을 나누고 있습니다… " + done + "/" + total;
+      }
+    }
+
+    async function buildMockAsync(task, passage, hasImage) {
+      await yieldToUi();
+      if (task !== "translate") return buildMock(task, passage, hasImage);
+      console.warn("API 문장 쌍이 없어 브라우저 직독직해를 표시합니다");
+      var source = localSource(passage, hasImage);
+      var sentences = splitSentences(source.text);
+      var rows = [];
+      var index = 0;
+      while (index < sentences.length) {
+        rows.push(localSentenceRow(sentences[index]));
+        index += 1;
+        setTaskProgress(index, sentences.length);
+        await yieldToUi();
+      }
+      return {
+        demo: true,
+        engine: "local",
+        transcript: source.fromImage ? source.text : "",
+        sentences: rows
+      };
     }
 
     function buildMock(task, passage, hasImage) {
@@ -3798,14 +4216,7 @@
         demo: demo,
         engine: "local",
         transcript: transcript,
-        sentences: segmentSentences(source.text).map(function (sentence) {
-          var parts = chunkParts(sentence);
-          return {
-            original: sentence,
-            chunks: parts,
-            literal_chunks: parts.map(koreanChunk)
-          };
-        })
+        sentences: segmentSentences(source.text).map(localSentenceRow)
       };
     }
 
@@ -3867,29 +4278,41 @@
       return {
         original: sentence,
         chunks: chunks,
-        literal_chunks: chunks.map(koreanChunk)
+        literal_chunks: sentenceMappedChunks(sentence, chunks)
       };
     }
 
     function normalizeTranslatePayload(data) {
-      var sentences = [];
-      asArray(data && data.sentences).forEach(function (item) {
-        if (!item || typeof item !== "object") return;
-        var original = String(item.original || "").replace(/\s*\/\/\s*$/g, "").trim();
-        if (!original) return;
-        var pieces = segmentSentences(original);
-        if (pieces.length > 1) {
-          pieces.forEach(function (sentence) { sentences.push(localSentenceRow(sentence)); });
-          return;
+      var source = asArray(data && data.sentences);
+      if (!source.length && data && (data.engChunks || data.korChunks)) source = [data];
+      var sentences = source.map(function (item) {
+        if (!item || typeof item !== "object") return null;
+        var modelEng = asArray(item.engChunks).map(chunkKey).filter(Boolean);
+        if (!modelEng.length) modelEng = asArray(item.chunks).map(chunkKey).filter(Boolean);
+        var modelKor = asArray(item.korChunks).map(function (part) { return String(part || "").trim(); });
+        if (!modelKor.length) modelKor = asArray(item.literal_chunks).map(function (part) { return String(part || "").trim(); });
+        var original = String(item.original || "").replace(/\s*\/\/+\s*/g, " ").replace(/\s+\/\s+/g, " ").replace(/\s+/g, " ").trim();
+        if (!original) original = modelEng.join(" ");
+        if (!original) return null;
+        var engChunks = chunkParts(original);
+        var korChunks = realignKorChunks(engChunks, modelEng, modelKor);
+        console.log("API engChunks", modelEng);
+        console.log("API korChunks", modelKor);
+        console.log("동기화 engChunks", engChunks);
+        console.log("동기화 korChunks", korChunks);
+        if (engChunks.length !== korChunks.length) {
+          console.warn("청크 길이 불일치", "engChunks", engChunks.length, "korChunks", korChunks.length);
+          korChunks = korChunks.slice(0, engChunks.length);
+          while (korChunks.length < engChunks.length) korChunks.push("");
         }
-        var chunks = expandSlashed(item.chunks);
-        var literals = expandSlashed(item.literal_chunks && item.literal_chunks.length ? item.literal_chunks : item.literalChunks);
-        if (!pairedChunks(original, chunks, literals)) {
-          sentences.push(localSentenceRow(original));
-          return;
-        }
-        sentences.push({ original: original, chunks: chunks, literal_chunks: literals });
-      });
+        return {
+          original: original,
+          engChunks: engChunks,
+          korChunks: korChunks,
+          chunks: engChunks,
+          literal_chunks: korChunks
+        };
+      }).filter(Boolean);
       return {
         transcript: String(data && data.transcript || ""),
         sentences: sentences,
@@ -3903,7 +4326,7 @@
       if (!info) return;
       selectedTask = task;
       markSelected();
-      var passage = els.passage.value.trim();
+      var passage = analysisPassage(els.passage.value);
       var useText = passage.length >= 40;
       if (!useText && !imageFile) {
         setHeading(task);
@@ -3916,8 +4339,14 @@
       var settings = await resolveGeminiSettings(task);
       if (!settings) {
         setHeading(task);
-        setBusy(task, false);
-        showParsed(task, buildMock(task, passage, Boolean(imageFile)), task === "translate" ? "브라우저 직독직해" : "시뮬레이션 · 저장된 API 키 없음");
+        setBusy(task, true);
+        renderLoading(task);
+        try {
+          var localMock = await buildMockAsync(task, passage, Boolean(imageFile));
+          showParsed(task, localMock, task === "translate" ? "브라우저 직독직해" : "시뮬레이션 · 저장된 API 키 없음");
+        } finally {
+          setBusy(task, false);
+        }
         return;
       }
 
@@ -3934,34 +4363,38 @@
       try {
         var schema = task === "translate" ? TRANSLATE_SCHEMA : null;
         var prompt = buildUserPrompt(info.instruction, useText ? passage : "", !useText && Boolean(imageFile));
+        if (task === "translate" && useText) {
+          console.log("API 전송 문장", segmentSentences(passage).map(slashSentence));
+        }
+        var system = task === "translate" ? TRANSLATE_SYSTEM_PROMPT : SYSTEM_PROMPT;
         var image = useText ? null : imageFile;
         var temperature = task === "transform" ? 0.6 : 0.2;
         var result;
         if (settings.fromEnv) {
-          result = await askGeminiFromEnv(SYSTEM_PROMPT, prompt, image, temperature, abortController.signal, schema);
+          result = await askGeminiFromEnv(system, prompt, image, temperature, abortController.signal, schema);
         } else if (settings.provider === "gemini") {
-          result = await askGemini(settings, SYSTEM_PROMPT, prompt, image, temperature, abortController.signal, schema);
+          result = await askGemini(settings, system, prompt, image, temperature, abortController.signal, schema);
         } else {
-          result = await askModel(settings, SYSTEM_PROMPT, prompt, image, temperature, abortController.signal);
+          result = await askModel(settings, system, prompt, image, temperature, abortController.signal);
         }
         var parsed;
         try {
           parsed = parseModelJson(result.text);
         } catch (error) {
           setHeading(task);
-          showParsed(task, buildMock(task, passage, Boolean(imageFile)), "시뮬레이션 · 모델 응답을 읽지 못해 예시로 표시");
+          showParsed(task, await buildMockAsync(task, passage, Boolean(imageFile)), "시뮬레이션 · 모델 응답을 읽지 못해 예시로 표시");
           return;
         }
         if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
           setHeading(task);
-          showParsed(task, buildMock(task, passage, Boolean(imageFile)), "시뮬레이션 · 모델 응답을 읽지 못해 예시로 표시");
+          showParsed(task, await buildMockAsync(task, passage, Boolean(imageFile)), "시뮬레이션 · 모델 응답을 읽지 못해 예시로 표시");
           return;
         }
         if (task === "translate") {
           parsed = normalizeTranslatePayload(parsed);
           if (!parsed.sentences.length) {
             setHeading(task);
-            showParsed(task, buildMock(task, passage, Boolean(imageFile)), "시뮬레이션 · 모델 응답을 읽지 못해 예시로 표시");
+            showParsed(task, await buildMockAsync(task, passage, Boolean(imageFile)), "시뮬레이션 · 모델 응답을 읽지 못해 예시로 표시");
             return;
           }
         }
@@ -3973,7 +4406,7 @@
         if (error.name === "AbortError" && !timedOut) {
           renderError("분석을 취소했습니다.");
         } else if (canSimulate(error)) {
-          showParsed(task, buildMock(task, passage, Boolean(imageFile)), "시뮬레이션 · " + simulationReason(error, timedOut));
+          showParsed(task, await buildMockAsync(task, passage, Boolean(imageFile)), "시뮬레이션 · " + simulationReason(error, timedOut));
         } else {
           renderError(error.message || "분석을 끝내지 못했습니다.");
         }
@@ -4030,7 +4463,7 @@
     }
 
     function bind() {
-      els.passage.addEventListener("input", updateSourceNote);
+      els.passage.addEventListener("input", scheduleSourceNote);
       els.loadSample.addEventListener("click", function () {
         if (els.passage.value.trim() && !window.confirm("지금 입력한 지문을 예시 지문으로 바꿀까요?")) return;
         els.passage.value = SAMPLE_PASSAGE;
@@ -4232,6 +4665,7 @@
       if (!loggedIn) return;
       var session = readSession();
       els.sessionEmail.textContent = session ? session.email : "";
+      warmOcrWorker();
     }
 
     function submitAuth(event) {
