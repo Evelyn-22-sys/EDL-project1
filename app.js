@@ -41,14 +41,14 @@
         title: "직독직해",
         loading: "문장마다 직독직해를 나누고 있습니다.",
         instruction: [
-          "영어 지문을 직독직해 JSON으로만 답하세요. 문장 전체를 한 번에 읽고, 슬래시 조각을 따로 번역 요청으로 나누지 않습니다.",
-          "각 문장은 {\"engChunks\":[\"...\"],\"korChunks\":[\"...\"]} 입니다. korChunks 개수는 engChunks 개수와 같아야 합니다.",
+          "영어 지문을 직독직해 JSON으로만 답하세요. 슬래시(/)가 포함된 문장 전체를 한 번에 통번역한 뒤, 그 결과를 청크로 나눕니다.",
+          "당신은 전문 직독직해 번역기입니다. 1. 입력된 전체 영어 문장을 먼저 자연스러운 한국어 직독직해 문장으로 온전하게 통번역하십시오. 2. 그 후, 새롭게 분할된 영어 청크 배열(engChunks)의 개수와 구조에 정확히 1:1로 대응하도록 한국어 청크 배열(korChunks)을 나누어 반환하십시오. 3. it, of 같은 단어 조각만 보고 기계적으로 번역(그것, 의 등)하는 것을 절대 금지하며, 문장 전체 문맥에 맞는 의미 단위 직독직해 결과를 각 청크에 배치하십시오.",
           "규칙 1 문장 분할: 마침표, 물음표, 느낌표에서만 문장을 나눕니다. 큰따옴표 안의 온점은 문장을 나누지 않습니다. Mr. Mrs. Ms. Dr. Prof.와 U.S. 같은 약어의 온점도 문장을 나누지 않습니다. 인용문 뒤의 she said, I said 같은 화자 태그는 그 태그 끝의 온점까지 같은 문장으로 둡니다.",
           "규칙 2: engChunks는 입력 문장에 이미 들어 있는 슬래시 사이의 영어 원문입니다. 슬래시 위치를 바꾸지 않습니다.",
           "영어 철자를 한글 발음으로 옮기지 않습니다. 인용 속 인사와 호칭도 그 뜻으로 옮기고, AJ처럼 대문자만 있는 이니셜은 라틴 글자로 남깁니다.",
           "JSON 원소에는 슬래시와 // 를 넣지 않습니다.",
           "JSON 형식:",
-          '{"sentences":[{"engChunks":["The economic benefit","of culturtainment","makes it attractive","to politicians","and policy makers alike."],"korChunks":["경제적 이득은","컬처테인먼트의","그것을 매력적으로 만들고","정치인들에게","그리고 정책 입안자들에게도 마찬가지다."]}]}'
+          '{"sentences":[{"engChunks":["The economic benefit","of culturtainment","makes it attractive","to politicians","and policy makers alike."],"korChunks":["경제적 이득은","컬처테인먼트가","매력적으로 보이게 하고","정치인에게","정책 입안자에게도 마찬가지다."]}]}'
         ].join("\n")
       },
       summary: {
@@ -56,10 +56,12 @@
         title: "핵심 요약",
         loading: "중심 생각과 근거를 추리고 있습니다.",
         instruction: [
-          "영어 지문의 핵심만 요약하세요.",
+          "영어 지문 전체를 핵심 요약으로 압축하세요. 문장을 하나씩 나열하지 말고, 전체의 주제와 중심 주장을 하나의 응축된 문장으로 추상화합니다.",
+          "summary와 gist는 마침표(.)로 끝나는 단 하나의 완결된 한국어 문장입니다. 두 값은 같은 문장입니다.",
+          "두 번째 문장, 줄바꿈, 불릿, 번호 목록은 넣지 않습니다. summary 안에는 마침표가 맨 끝에 하나만 있습니다.",
           "JSON 형식:",
-          '{"transcript":"","title":"짧은 한국어 제목","gist":"핵심을 한국어 한 문장으로","summary":"네 문장 이내의 한국어 요약","points":[{"en":"지문 속 짧은 영어 근거","ko":"그 근거의 의미"}],"main_idea_en":"중심 생각을 영어 한 문장으로 다시 쓴 패러프레이즈"}',
-          "points는 3개로 합니다. main_idea_en은 원문 문장을 그대로 복사하지 않습니다."
+          '{"transcript":"","title":"짧은 한국어 제목","gist":"지문 전체의 주제와 중심 주장을 담은 한 문장.","summary":"지문 전체의 주제와 중심 주장을 담은 한 문장.","points":[{"en":"지문 속 짧은 영어 근거","ko":"그 근거의 의미"}],"main_idea_en":"The passage develops one central claim."}',
+          "points는 3개로 합니다. main_idea_en은 원문을 복사하지 않은 영어 한 문장입니다."
         ].join("\n")
       },
       annotate: {
@@ -109,15 +111,21 @@
     };
 
     var TRANSLATE_SYSTEM_PROMPT = [
-      "You are an expert English-to-Korean direct-reading (직독직해) translation engine.",
-      "When translating, you MUST follow this internal multi-stage reasoning process sequentially before returning the final output:",
-      "",
-      "1. [Phase 1 - Global Context Analysis]: Read the entire passage provided to understand the overall context, topic, and flow. (Internal reasoning only, do not output to user)",
-      "2. [Phase 2 - Sentence-level Comprehension]: Read each sentence completely, interpret its full grammatical structure and holistic meaning within the context.",
-      "3. [Phase 3 - Chunk-level Direct Translation Mapping]: Match the holistic sentence meaning to the provided English chunk array (`engChunks`). Generate a Korean chunk array (`korChunks`) that has the EXACT same length as `engChunks`, ensuring 1:1 index alignment. Each Korean chunk must reflect natural direct-reading order while preserving the overall sentence context. Never translate chunks in isolation without sentence-level context.",
-      "",
-      "Output Format: Return strictly {\"sentences\":[{\"engChunks\":[\"...\"],\"korChunks\":[\"...\"]}]}. korChunks must have the exact same length and order as engChunks."
+      "당신은 전문 직독직해 번역기입니다.",
+      "1. 입력된 전체 영어 문장을 먼저 자연스러운 한국어 직독직해 문장으로 온전하게 통번역하십시오.",
+      "2. 그 후, 새롭게 분할된 영어 청크 배열(engChunks)의 개수와 구조에 정확히 1:1로 대응하도록 한국어 청크 배열(korChunks)을 나누어 반환하십시오.",
+      "3. it, of 같은 단어 조각만 보고 기계적으로 번역(그것, 의 등)하는 것을 절대 금지하며, 문장 전체 문맥에 맞는 의미 단위 직독직해 결과를 각 청크에 배치하십시오.",
+      "슬래시(/)가 들어 있는 문장 전체를 한 번에 읽고, 조각을 따로 번역하지 마십시오.",
+      "응답은 {\"sentences\":[{\"engChunks\":[\"...\"],\"korChunks\":[\"...\"]}]} JSON만 반환합니다. korChunks 길이는 engChunks 길이와 같고, 순서를 바꾸지 않습니다."
     ].join("\n");
+
+    var SUMMARY_SYSTEM_PROMPT = [
+      "당신은 영어 지문 전체를 한국어 한 문장으로 압축하는 핵심 요약 엔진입니다.",
+      "개별 문장을 순서대로 옮기거나 나열하지 마십시오. 지문 전체의 주제와 중심 주장만 내부적으로 파악한 뒤, 그 둘을 하나의 응축된 문장으로 추상화하십시오.",
+      "summary와 gist는 마침표(.)로 끝나는 단 하나의 완결된 한국어 문장이어야 합니다. 두 필드의 문장은 같아야 합니다.",
+      "두 번째 문장, 줄바꿈, 불릿, 번호 목록은 금지합니다.",
+      "JSON 객체만 반환하고, summary 값 안에는 마침표가 맨 끝에 하나만 있어야 합니다."
+    ].join(" ");
 
     var SYSTEM_PROMPT = [
       "당신은 한국 대학교 영어영문학 수업의 독해 조교입니다.",
@@ -218,6 +226,7 @@
     var ocrJob = 0;
     var ocrListen = 0;
     var ocrQueue = Promise.resolve();
+    var uploadGate = Promise.resolve();
     var ocrWorker = null;
     var ocrWorkerPromise = null;
     var ocrWorkerToken = 0;
@@ -230,6 +239,7 @@
     var koreanMemo = new Map();
     var OCR_FAIL = "이미지에서 텍스트를 추출하지 못했습니다. 아래 텍스트에 직접 입력해주세요.";
     var abortController = null;
+    var renderToken = 0;
     var requestKind = null;
     var envGeminiReady = false;
     var envGeminiModel = "";
@@ -407,6 +417,7 @@
 
     function clearImage() {
       ocrJob += 1;
+      invalidatePendingWork();
       setOcrStatus("", false, false);
       imageFile = null;
       els.file.value = "";
@@ -586,16 +597,26 @@
         setImageMessage("사진이 12MB보다 큽니다. 용량을 줄여 다시 올려 주세요.");
         return;
       }
+      ocrJob += 1;
+      invalidatePendingWork();
+      var token = renderToken;
+      var releaseUpload = function () {};
+      uploadGate = new Promise(function (resolve) { releaseUpload = resolve; });
       setImageMessage("");
       try {
-        imageFile = await compressImage(file);
+        var nextImage = await compressImage(file);
+        if (token !== renderToken) return;
+        imageFile = nextImage;
         showImagePreview();
         updateSourceNote();
         readImageText(imageFile);
       } catch (error) {
+        if (token !== renderToken) return;
         imageFile = null;
         showImagePreview();
         setImageMessage(error.message || "사진을 열지 못했습니다.");
+      } finally {
+        releaseUpload();
       }
     }
 
@@ -1370,6 +1391,7 @@
       try {
         response = await fetch(endpoint, {
           method: "POST",
+          cache: "no-store",
           signal: signal,
           headers: {
             "Content-Type": "application/json",
@@ -1439,6 +1461,7 @@
         try {
           response = await fetch("/api/gemini", {
             method: "POST",
+            cache: "no-store",
             signal: signal,
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -1484,24 +1507,13 @@
 
     function buildUserPrompt(instruction, passage, hasImage) {
       var source = passage || "(텍스트 없음. 첨부 이미지를 읽어 영어 지문을 복원하세요.)";
+      if (passage && instruction.indexOf("직독직해") >= 0) {
+        source = segmentSentences(passage).map(slashSentence).join("\n");
+      }
       var extra = hasImage
         ? "\n\n이미지가 첨부되어 있습니다. 텍스트가 비어 있을 때만 이미지를 읽고, 텍스트가 있으면 텍스트를 기준으로 하세요."
         : "";
-      var plan = "";
-      if (passage && instruction.indexOf("직독직해") >= 0) plan = "\n\n" + chunkPlanText(passage);
-      return instruction + extra + plan + "\n\n지문:\n\"\"\"\n" + source + "\n\"\"\"";
-    }
-
-    function chunkPlanText(passage) {
-      var sentences = segmentSentences(passage);
-      var lines = [
-        "아래 각 줄은 슬래시(/)가 포함된 영어 문장 전체입니다. 이 문장을 통째로 번역하십시오.",
-        "조각을 개별 요청으로 나누지 마십시오. engChunks는 슬래시 사이의 원문이고, korChunks 길이는 engChunks 길이와 같아야 합니다."
-      ];
-      sentences.forEach(function (sentence, index) {
-        lines.push((index + 1) + ". " + slashSentence(sentence));
-      });
-      return lines.join("\n");
+      return instruction + extra + "\n\n지문:\n\"\"\"\n" + source + "\n\"\"\"";
     }
 
     function setHeading(task) {
@@ -1588,6 +1600,24 @@
     function showResultActions(visible) {
       els.copyResult.classList.toggle("hidden", !visible);
       els.clearResult.classList.toggle("hidden", !visible);
+    }
+
+    function invalidatePendingWork() {
+      renderToken += 1;
+      var previous = abortController;
+      abortController = null;
+      if (previous) previous.abort();
+      sentenceMemo.clear();
+      slashMemo.clear();
+      chunkMemo.clear();
+      koreanMemo.clear();
+      if (!els.resultBody) return;
+      els.resultBody.classList.remove("is-revealed");
+      els.resultBody.dataset.state = "empty";
+      els.resultBody.innerHTML = "";
+      if (els.emptyTemplate) els.resultBody.appendChild(els.emptyTemplate.content.cloneNode(true));
+      if (els.resultMeta) els.resultMeta.textContent = "";
+      showResultActions(false);
     }
 
     function renderEmpty() {
@@ -2153,26 +2183,30 @@
       return out;
     }
 
-    function bilingualChunks(item) {
-      var modelEng = asArray(item && item.engChunks).map(chunkKey).filter(Boolean);
-      if (!modelEng.length) modelEng = asArray(item && item.chunks).map(chunkKey).filter(Boolean);
-      var modelKor = asArray(item && item.korChunks).map(function (part) { return String(part || "").trim(); });
-      if (!modelKor.length) modelKor = asArray(item && item.literal_chunks).map(function (part) { return String(part || "").trim(); });
-      var sourceText = String(item && item.original || "").replace(/\s*\/\/+\s*/g, " ").replace(/\s+\/\s+/g, " ").replace(/\s+/g, " ").trim();
-      if (!sourceText) sourceText = modelEng.join(" ");
-      var engChunks = sourceText ? chunkParts(sourceText) : modelEng.slice();
-      if (!engChunks.length) engChunks = modelEng.slice();
-      var korChunks = realignKorChunks(engChunks, modelEng, modelKor);
-      if (korChunks.length !== engChunks.length) {
-        console.warn("청크 길이 불일치", "engChunks", engChunks.length, "korChunks", korChunks.length);
-        korChunks = korChunks.slice(0, engChunks.length);
-        while (korChunks.length < engChunks.length) korChunks.push("");
+    function korChunkOrWait(engChunk, korChunk) {
+      if (korChunk == null) return "번역 대기 중";
+      var text = String(korChunk).trim();
+      if (!text || text === "undefined" || text === "null") return "번역 대기 중";
+      return text;
+    }
+
+    function alignKorToEng(engChunks, korList) {
+      var kor = asArray(korList);
+      if (kor.length !== engChunks.length) {
+        console.warn("청크 길이 불일치", "engChunks", engChunks.length, "korChunks", kor.length);
       }
-      console.log("API engChunks", modelEng);
-      console.log("API korChunks", modelKor);
-      console.log("동기화 engChunks", engChunks);
-      console.log("동기화 korChunks", korChunks);
-      return { en: engChunks, ko: korChunks };
+      return engChunks.map(function (eng, index) {
+        return korChunkOrWait(eng, index < kor.length ? kor[index] : undefined);
+      });
+    }
+
+    function bilingualChunks(item) {
+      var engChunks = asArray(item && item.engChunks).map(chunkKey);
+      if (!engChunks.some(Boolean)) engChunks = asArray(item && item.chunks).map(chunkKey);
+      if (!engChunks.some(Boolean)) engChunks = chunkParts(String(item && item.original || ""));
+      var korSource = item && item.korChunks;
+      if (!asArray(korSource).length) korSource = item && item.literal_chunks;
+      return { en: engChunks, ko: alignKorToEng(engChunks, korSource) };
     }
 
     function literalViewHtml(item) {
@@ -2424,7 +2458,38 @@
       }).join("") + "</div>";
     }
 
+    function toSingleSentence(text) {
+      var raw = String(text || "").replace(/```+/g, " ");
+      var lines = raw.split(/[\r\n]+/).map(function (line) {
+        return line.replace(/^\s*(?:[-*•∙·]|[0-9]+[.)]|[①-⑩])\s*/, "").trim();
+      }).filter(Boolean);
+      raw = (lines[0] || "").replace(/\s+/g, " ").trim();
+      if (!raw) return "";
+      var matched = raw.match(/^.*?[.!?。](?=\s|$)/);
+      var sentence = matched ? matched[0].trim() : raw;
+      sentence = sentence.split(/[.!?。]/)[0].replace(/\s+/g, " ").trim();
+      if (!sentence || !/^[^.!?。\n]+$/.test(sentence)) return "";
+      return sentence + ".";
+    }
+
+    function normalizeSummaryPayload(data) {
+      var next = data && typeof data === "object" ? data : {};
+      var sentence = toSingleSentence(next.summary || next.gist || "");
+      if (!sentence) sentence = toSingleSentence(next.gist || "");
+      if (sentence) {
+        next.summary = sentence;
+        next.gist = sentence;
+      }
+      if (typeof next.main_idea_en === "string") {
+        var english = toSingleSentence(next.main_idea_en);
+        if (english) next.main_idea_en = english;
+      }
+      console.log("핵심 요약", next.summary || "");
+      return next;
+    }
+
     function renderSummary(data) {
+      data = normalizeSummaryPayload(data);
       var points = asArray(data.points);
       var pointsHtml = points.map(function (point, index) {
         return ''
@@ -2433,9 +2498,9 @@
           + "<div><p class=\"passage-face text-[15px] leading-7\">" + textBlock(point.en) + "</p>"
           + '<p class="note">' + textBlock(point.ko) + "</p></div></li>";
       }).join("");
+      var core = data.summary || data.gist || data.title || "요약";
       return ''
-        + '<p class="serif gist">' + textBlock(data.gist || data.title || "요약") + "</p>"
-        + '<p class="mt-4 text-[15px] leading-7 break-words">' + textBlock(data.summary) + "</p>"
+        + '<p class="serif gist">' + textBlock(core) + "</p>"
         + (pointsHtml ? '<ol class="mt-6 space-y-4">' + pointsHtml + "</ol>" : "")
         + (data.main_idea_en
           ? '<blockquote class="pull passage-face">' + textBlock(data.main_idea_en) + "</blockquote>"
@@ -4108,16 +4173,18 @@
       var demo = true;
       if (task === "summary") {
         var picked = sentences.slice(0, 3);
+        var topic = contentWords(source.text).slice(0, 3).map(glossWord).filter(Boolean).join(", ") || "지문의 중심 내용";
+        var core = toSingleSentence("이 글은 " + topic + "을 주제로 하여 지문 전체의 중심 주장을 전개한다");
         return {
           demo: demo,
           transcript: transcript,
           title: glossWord(words[0] || "passage"),
-          gist: freeSentence(sentences[0]),
-          summary: picked.map(freeSentence).join(" "),
+          gist: core,
+          summary: core,
           points: picked.map(function (sentence) {
-            return { en: sentence, ko: freeSentence(sentence) };
+            return { en: sentence, ko: toSingleSentence(freeSentence(sentence)) };
           }),
-          main_idea_en: sentences[0]
+          main_idea_en: toSingleSentence("The passage develops one central claim about " + (words[0] || "the topic") + ".")
         };
       }
       if (task === "annotate") {
@@ -4221,6 +4288,7 @@
     }
 
     function showParsed(task, data, meta) {
+      console.log("API Response:", data);
       if (data && typeof data.error === "string" && data.error.trim() && !data.demo) {
         setHeading(task);
         renderError(data.error.trim(), transcriptHtml(data));
@@ -4287,24 +4355,15 @@
       if (!source.length && data && (data.engChunks || data.korChunks)) source = [data];
       var sentences = source.map(function (item) {
         if (!item || typeof item !== "object") return null;
-        var modelEng = asArray(item.engChunks).map(chunkKey).filter(Boolean);
-        if (!modelEng.length) modelEng = asArray(item.chunks).map(chunkKey).filter(Boolean);
-        var modelKor = asArray(item.korChunks).map(function (part) { return String(part || "").trim(); });
-        if (!modelKor.length) modelKor = asArray(item.literal_chunks).map(function (part) { return String(part || "").trim(); });
+        var engChunks = asArray(item.engChunks).map(chunkKey);
+        if (!engChunks.some(Boolean)) engChunks = asArray(item.chunks).map(chunkKey);
         var original = String(item.original || "").replace(/\s*\/\/+\s*/g, " ").replace(/\s+\/\s+/g, " ").replace(/\s+/g, " ").trim();
-        if (!original) original = modelEng.join(" ");
-        if (!original) return null;
-        var engChunks = chunkParts(original);
-        var korChunks = realignKorChunks(engChunks, modelEng, modelKor);
-        console.log("API engChunks", modelEng);
-        console.log("API korChunks", modelKor);
-        console.log("동기화 engChunks", engChunks);
-        console.log("동기화 korChunks", korChunks);
-        if (engChunks.length !== korChunks.length) {
-          console.warn("청크 길이 불일치", "engChunks", engChunks.length, "korChunks", korChunks.length);
-          korChunks = korChunks.slice(0, engChunks.length);
-          while (korChunks.length < engChunks.length) korChunks.push("");
-        }
+        if (!engChunks.some(Boolean)) engChunks = original ? chunkParts(original) : [];
+        if (!engChunks.length) return null;
+        var korList = asArray(item.korChunks);
+        if (!korList.length) korList = asArray(item.literal_chunks);
+        var korChunks = alignKorToEng(engChunks, korList);
+        if (!original) original = engChunks.join(" ");
         return {
           original: original,
           engChunks: engChunks,
@@ -4320,101 +4379,141 @@
       };
     }
 
+    function translationIsReady(data) {
+      var sentences = asArray(data && data.sentences);
+      if (!sentences.length) return false;
+      return sentences.every(function (item) {
+        var eng = asArray(item && item.engChunks);
+        var kor = asArray(item && item.korChunks);
+        if (!eng.length || eng.length !== kor.length) return false;
+        return eng.every(function (part, index) {
+          var korean = String(kor[index] == null ? "" : kor[index]).trim();
+          return String(part || "").trim() && korean && korean !== "번역 대기 중";
+        });
+      });
+    }
+
+    function waitForTurn(ms, signal) {
+      return new Promise(function (resolve, reject) {
+        var timer = window.setTimeout(function () {
+          if (signal) signal.removeEventListener("abort", onAbort);
+          resolve();
+        }, ms);
+        function onAbort() {
+          window.clearTimeout(timer);
+          reject(new DOMException("Aborted", "AbortError"));
+        }
+        if (!signal) return;
+        if (signal.aborted) onAbort();
+        else signal.addEventListener("abort", onAbort);
+      });
+    }
+
     async function runTask(task) {
-      if (abortController) return;
       var info = TASKS[task];
       if (!info) return;
+      invalidatePendingWork();
+      var token = renderToken;
+      var controller = new AbortController();
+      abortController = controller;
+      requestKind = "task";
       selectedTask = task;
       markSelected();
-      var passage = analysisPassage(els.passage.value);
-      var useText = passage.length >= 40;
-      if (!useText && !imageFile) {
-        setHeading(task);
-        setBusy(task, false);
-        renderError(passage
-          ? "지문이 너무 짧습니다. 해석할 문장이 있는 한 문단을 넣어 주세요."
-          : "영어 지문을 붙여 넣거나, 지문이 보이는 사진을 올려 주세요.");
-        return;
-      }
-      var settings = await resolveGeminiSettings(task);
-      if (!settings) {
-        setHeading(task);
-        setBusy(task, true);
-        renderLoading(task);
-        try {
-          var localMock = await buildMockAsync(task, passage, Boolean(imageFile));
-          showParsed(task, localMock, task === "translate" ? "브라우저 직독직해" : "시뮬레이션 · 저장된 API 키 없음");
-        } finally {
-          setBusy(task, false);
-        }
-        return;
-      }
-
-      abortController = new AbortController();
-      requestKind = "task";
       var timedOut = false;
       var timer = window.setTimeout(function () {
         timedOut = true;
-        abortController.abort();
+        controller.abort();
       }, 120000);
       setBusy(task, true);
       renderLoading(task);
-
       try {
+        await uploadGate;
+        if (ocrListen) await ocrQueue;
+        if (token !== renderToken || controller.signal.aborted) return;
+        var passage = analysisPassage(els.passage.value);
+        var useText = passage.length >= 40;
+        if (!useText && !imageFile) {
+          setHeading(task);
+          renderError(passage
+            ? "지문이 너무 짧습니다. 해석할 문장이 있는 한 문단을 넣어 주세요."
+            : "영어 지문을 붙여 넣거나, 지문이 보이는 사진을 올려 주세요.");
+          return;
+        }
+        var settings = await resolveGeminiSettings(task);
+        if (token !== renderToken || controller.signal.aborted) return;
+        if (!settings) {
+          var localMock = await buildMockAsync(task, passage, Boolean(imageFile));
+          if (token !== renderToken || controller.signal.aborted) return;
+          showParsed(task, localMock, task === "translate" ? "브라우저 직독직해" : "시뮬레이션 · 저장된 API 키 없음");
+          return;
+        }
         var schema = task === "translate" ? TRANSLATE_SCHEMA : null;
         var prompt = buildUserPrompt(info.instruction, useText ? passage : "", !useText && Boolean(imageFile));
         if (task === "translate" && useText) {
           console.log("API 전송 문장", segmentSentences(passage).map(slashSentence));
         }
-        var system = task === "translate" ? TRANSLATE_SYSTEM_PROMPT : SYSTEM_PROMPT;
+        var system = task === "translate" ? TRANSLATE_SYSTEM_PROMPT : task === "summary" ? SUMMARY_SYSTEM_PROMPT : SYSTEM_PROMPT;
         var image = useText ? null : imageFile;
         var temperature = task === "transform" ? 0.6 : 0.2;
-        var result;
-        if (settings.fromEnv) {
-          result = await askGeminiFromEnv(system, prompt, image, temperature, abortController.signal, schema);
-        } else if (settings.provider === "gemini") {
-          result = await askGemini(settings, system, prompt, image, temperature, abortController.signal, schema);
-        } else {
-          result = await askModel(settings, system, prompt, image, temperature, abortController.signal);
+        var attempts = settings.fromEnv ? 1 : 3;
+        var result = null;
+        var parsed = null;
+        for (var attempt = 0; attempt < attempts; attempt += 1) {
+          if (token !== renderToken || controller.signal.aborted) return;
+          if (settings.fromEnv) {
+            result = await askGeminiFromEnv(system, prompt, image, temperature, controller.signal, schema);
+          } else if (settings.provider === "gemini") {
+            result = await askGemini(settings, system, prompt, image, temperature, controller.signal, schema);
+          } else {
+            result = await askModel(settings, system, prompt, image, temperature, controller.signal);
+          }
+          if (token !== renderToken || controller.signal.aborted) return;
+          try {
+            parsed = parseModelJson(result.text);
+          } catch (error) {
+            parsed = null;
+          }
+          console.log("API Response:", parsed);
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            if (task === "summary") parsed = normalizeSummaryPayload(parsed);
+            if (task === "translate") parsed = normalizeTranslatePayload(parsed);
+            if (task !== "translate" || translationIsReady(parsed)) break;
+          }
+          parsed = null;
+          if (attempt < attempts - 1) await waitForTurn(400 * Math.pow(2, attempt), controller.signal);
         }
-        var parsed;
-        try {
-          parsed = parseModelJson(result.text);
-        } catch (error) {
-          setHeading(task);
-          showParsed(task, await buildMockAsync(task, passage, Boolean(imageFile)), "시뮬레이션 · 모델 응답을 읽지 못해 예시로 표시");
-          return;
-        }
-        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-          setHeading(task);
-          showParsed(task, await buildMockAsync(task, passage, Boolean(imageFile)), "시뮬레이션 · 모델 응답을 읽지 못해 예시로 표시");
-          return;
-        }
-        if (task === "translate") {
-          parsed = normalizeTranslatePayload(parsed);
-          if (!parsed.sentences.length) {
-            setHeading(task);
-            showParsed(task, await buildMockAsync(task, passage, Boolean(imageFile)), "시뮬레이션 · 모델 응답을 읽지 못해 예시로 표시");
+        if (token !== renderToken || controller.signal.aborted) return;
+        if (!parsed) {
+          if (task === "translate") {
+            renderError("번역 응답이 완전하지 않습니다. 다시 제출해 주세요.");
             return;
           }
+          showParsed(task, await buildMockAsync(task, passage, Boolean(imageFile)), "시뮬레이션 · 모델 응답을 읽지 못해 예시로 표시");
+          return;
         }
         var tokenNote = result.tokens ? " · " + Number(result.tokens).toLocaleString("ko-KR") + " tokens" : "";
         var metaName = settings.fromEnv ? "Gemini " + settings.model : settings.model;
         showParsed(task, parsed, metaName + tokenNote);
       } catch (error) {
+        if (token !== renderToken) return;
         setHeading(task);
         if (error.name === "AbortError" && !timedOut) {
           renderError("분석을 취소했습니다.");
+        } else if (task === "translate") {
+          renderError(error.message || "번역 응답이 완전하지 않습니다. 다시 제출해 주세요.");
         } else if (canSimulate(error)) {
-          showParsed(task, await buildMockAsync(task, passage, Boolean(imageFile)), "시뮬레이션 · " + simulationReason(error, timedOut));
+          var passageNow = analysisPassage(els.passage.value);
+          showParsed(task, await buildMockAsync(task, passageNow, Boolean(imageFile)), "시뮬레이션 · " + simulationReason(error, timedOut));
         } else {
           renderError(error.message || "분석을 끝내지 못했습니다.");
         }
       } finally {
         window.clearTimeout(timer);
-        abortController = null;
-        requestKind = null;
-        setBusy(task, false);
+        if (abortController === controller) {
+          abortController = null;
+          requestKind = null;
+        }
+        if (token === renderToken || abortController === null) setBusy(task, false);
       }
     }
 
